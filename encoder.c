@@ -1,92 +1,187 @@
 #include <stdio.h>
-#include <string.h>
-#include <ctype.h>
+#include <stdlib.h>
 
-unsigned char password[] = "my_password1";
-int debug_mode = 1;      // on by default
-FILE *infile = NULL, *outfile = NULL;
+// Global variables
+FILE *infile = NULL;            // Input file (will be set to stdin by default)
+FILE *outfile = NULL;           // Output file (will be set to stdout by default)
+int debug_mode = 1;      // Default: debug mode is ON
+unsigned char password[] = "Avivjac";  // Password for +D{password}
+unsigned char encoding_key[256] = "0";    // Encoding key (default "0" = no change)
+int encoding_mode = 0;                   // 0 = no encoding, 1 = add, -1 = subtract
+int encode_pos = 0;              // Current position in encoding key
+int encoding_length = 1;             // Length of encoding key
 
-char encode_key[] = "0";
-int encode_add = 1; // 1: add, 0: subtract
-
-int encode_pos = 0; // position in the key
-
-int encode(int c) {
-    int key_digit = encode_key[encode_pos % strlen(encode_key)] - '0';
-    int result = c;
+// Function to encode a single character
+unsigned char encode(unsigned char c) {
+    unsigned char key_digit = encoding_key[encode_pos];
+    int key_value = key_digit - '0';
     
-    if ('A' <= c && c <= 'Z') {
-        if (encode_add)
-            result = ((c - 'A' + key_digit) % 26) + 'A';
-        else
-            result = ((c - 'A' - key_digit + 26) % 26) + 'A';
-    } else if ('0' <= c && c <= '9') {
-        if (encode_add)
-            result = ((c - '0' + key_digit) % 10) + '0';
-        else
-            result = ((c - '0' - key_digit + 10) % 10) + '0';
-    }
-
     encode_pos++;
+    if (encode_pos >= encoding_length) {
+        encode_pos = 0; 
+    }
+    
+    if (encoding_mode == 0) {
+        return c;
+    }
+    
+    unsigned char result = c;
+    
+    if (c >= '0' && c <= '9') {
+        int digit_value = c - '0';  
+        if (encoding_mode == 1) {
+            digit_value = (digit_value + key_value) % 10;
+        } else if (encoding_mode == -1) {
+            digit_value = (digit_value - key_value + 10) % 10;
+        }
+        result = '0' + digit_value;  
+    }
+    else if (c >= 'A' && c <= 'Z') {
+        int letter_value = c - 'A';  
+        if (encoding_mode == 1) {
+            letter_value = (letter_value + key_value) % 26;
+        } else if (encoding_mode == -1) {
+            letter_value = (letter_value - key_value + 26) % 26;
+        }
+        result = 'A' + letter_value; 
+    }
+    
     return result;
 }
 
-
-int main(int argc, char *argv[]) {
-    infile = stdin;
+int main(int argc, char **argv) {
+    infile = stdin;  
     outfile = stdout;
-    debug_mode = 1;         // Default debug ON
-    strcpy(encode_key, "0"); // Default encoding key "0"
-    encode_add = 1;          // Default to addition (not used for "0")
+    
+    int i;
+    
+    for (i = 1; i < argc; i++) {
+        // -D Case
+        if (argv[i][0] == '-' && argv[i][1] == 'D' && argv[i][2] == '\0') {
+            debug_mode = 0; 
+            
+            continue;
+        }
+        // +D Case
+        else if (argv[i][0] == '+' && argv[i][1] == 'D') {
+            int j = 2;  
+            int match = 1;  
+            int idx = 0; 
+            
+            while (password[idx] != '\0' && argv[i][j] != '\0') {
+                if (password[idx] != argv[i][j]) {
+                    match = 0;  
+                    break;
+                }
+                idx++;
+                j++;
+            }
+            
+            if (match && password[idx] == '\0' && argv[i][j] == '\0') {
+                debug_mode = 1;  // debug mode ON
+            }
+            continue;  
+        }
+        // +E Case
+        else if (argv[i][0] == '+' && argv[i][1] == 'E') {
+            int j = 2;  
+            int idx = 0;
+            
+            while (argv[i][j] != '\0' && idx < 255) {
+                if (argv[i][j] >= '0' && argv[i][j] <= '9') {
+                    encoding_key[idx] = argv[i][j];
+                    idx++;
+                    j++;
+                } else {
+                    break;
+                }
+            }
+            encoding_key[idx] = '\0';  // Null terminate
+            encoding_length = idx;
+            if (encoding_length == 0) {
+                encoding_key[0] = '0';  
+                encoding_length = 1;
+            }
+            encoding_mode = 1; 
+            encode_pos = 0; 
+            continue; 
+        }
+        // -E Case
+        else if (argv[i][0] == '-' && argv[i][1] == 'E') {
+            int j = 2;  
+            int idx = 0;
+            
+            while (argv[i][j] != '\0' && idx < 255) {
+                if (argv[i][j] >= '0' && argv[i][j] <= '9') {
+                    encoding_key[idx] = argv[i][j];
+                    idx++;
+                    j++;
+                } else {
+                    break;
+                }
+            }
+            encoding_key[idx] = '\0';  // Null terminate
+            encoding_length = idx;
+            if (encoding_length == 0) {
+                encoding_key[0] = '0';  
+                encoding_length = 1;
+            }
+            encoding_mode = -1;  
+            encode_pos = 0;  
+            continue; 
+        }
 
-    // Pass through all arguments to set up variables before first debug print
-    for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "-D") == 0) {
-            debug_mode = 0;
-        } else if (strncmp(argv[i], "+D", 2) == 0 &&
-                   strcmp(argv[i] + 2, (const char *)password) == 0) {
-            debug_mode = 1;
-        } else if (strncmp(argv[i], "-i", 2) == 0) {
-            infile = fopen(argv[i]+2, "r");
-            if (!infile) {
-                fprintf(stderr, "Error opening input file\n");
+        // -i Case
+        else if (argv[i][0] == '-' && argv[i][1] == 'i') {
+            infile = fopen(&argv[i][2], "r");
+            if (infile == NULL) {
+                fprintf(stderr, "Error: cannot open input file %s\n", &argv[i][2]);
                 exit(1);
             }
-        } else if (strncmp(argv[i], "-o", 2) == 0) {
-            outfile = fopen(argv[i]+2, "w");
-            if (!outfile) {
-                fprintf(stderr, "Error opening output file\n");
+            continue;
+        }
+
+        // -o Case 
+        else if (argv[i][0] == '-' && argv[i][1] == 'o') {
+            outfile = fopen(&argv[i][2], "w");
+            if (outfile == NULL) {
+                fprintf(stderr, "Error: cannot open output file %s\n", &argv[i][2]);
                 exit(1);
             }
-        } else if (strncmp(argv[i], "+E", 2) == 0) {
-            strcpy(encode_key, argv[i]+2);
-            encode_add = 1;
-        } else if (strncmp(argv[i], "-E", 2) == 0) {
-            strcpy(encode_key, argv[i]+2);
-            encode_add = 0;
+            continue;
+        }
+
+    }
+    
+    // Print AFTER processing all arguments
+    if (debug_mode) {
+        for (i = 0; i < argc; i++) {
+            fprintf(stderr, "%s\n", argv[i]);  
         }
     }
-
-    // Second loop: debug print arguments, after config is set
-    for (int i = 1; i < argc; i++) {
-        if (debug_mode) {
-            fprintf(stderr, "%s\n", argv[i]);
+    
+    int c;  
+    
+    while (1) {
+        c = fgetc(infile);
+        
+        // End condition
+        if (c == EOF || feof(infile)) {
+            break;  
         }
-        // If debug flag disabled here, next prints will be skipped
-        if (strcmp(argv[i], "-D") == 0) {
-            debug_mode = 0;
-        } else if (strncmp(argv[i], "+D", 2) == 0 && strcmp(argv[i] + 2, (const char *)password) == 0) {
-            debug_mode = 1;
-        }
-    }
-
-    encode_pos = 0; // reset key cycling
-    int c;
-    while ((c = fgetc(infile)) != EOF) {
-        c = encode(c);
+        
+        c = encode((unsigned char)c);
         fputc(c, outfile);
     }
-    if (infile != stdin) fclose(infile);
-    if (outfile != stdout) fclose(outfile);
+    
+    if (outfile != stdout) {
+        fclose(outfile);
+    }
+    if (infile != stdin) {
+        fclose(infile);
+    }
+
     return 0;
 }
+
+
